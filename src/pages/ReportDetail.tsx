@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useParams, useNavigate } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ type Report = {
   updated_at: string;
   categories?: { name: string };
   profiles?: { name: string };
-  assigned_profiles?: { name: string };
+  assigned_profiles?: { name: string; role?: string };
 };
 
 type ReportUpdate = {
@@ -37,6 +38,7 @@ type ReportUpdate = {
 export default function ReportDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [report, setReport] = useState<Report | null>(null);
   const [updates, setUpdates] = useState<ReportUpdate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,12 +54,14 @@ export default function ReportDetail() {
     try {
       const { data, error } = await supabase
         .from("reports")
-        .select(`
+        .select(
+          `
           *,
           categories (name),
           profiles!reports_user_id_fkey (name),
-          assigned_profiles:profiles!reports_assigned_to_fkey (name)
-        `)
+          assigned_profiles:profiles!reports_assigned_to_fkey (name, role)
+        `
+        )
         .eq("id", id)
         .single();
 
@@ -74,10 +78,12 @@ export default function ReportDetail() {
     try {
       const { data, error } = await supabase
         .from("report_updates")
-        .select(`
+        .select(
+          `
           *,
           profiles (name)
-        `)
+        `
+        )
         .eq("report_id", id)
         .order("created_at", { ascending: false });
 
@@ -118,7 +124,11 @@ export default function ReportDetail() {
       <Layout>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Laporan tidak ditemukan</p>
-          <Button onClick={() => navigate("/dashboard")} variant="outline" className="mt-4">
+          <Button
+            onClick={() => navigate("/dashboard")}
+            variant="outline"
+            className="mt-4"
+          >
             Kembali
           </Button>
         </div>
@@ -131,7 +141,11 @@ export default function ReportDetail() {
       <div className="max-w-4xl mx-auto space-y-6">
         <Button
           variant="ghost"
-          onClick={() => navigate("/dashboard")}
+          onClick={() => {
+            if (profile?.role === "admin") return navigate("/admin");
+            if (profile?.role === "petugas") return navigate("/petugas");
+            return navigate("/dashboard");
+          }}
           className="gap-2"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -172,7 +186,9 @@ export default function ReportDetail() {
               <div className="flex items-center gap-2 text-sm">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium">Dibuat:</span>
-                <span>{new Date(report.created_at).toLocaleString("id-ID")}</span>
+                <span>
+                  {new Date(report.created_at).toLocaleString("id-ID")}
+                </span>
               </div>
               {report.assigned_profiles && (
                 <div className="flex items-center gap-2 text-sm">
@@ -197,10 +213,13 @@ export default function ReportDetail() {
                 <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
                 <div>
                   <h3 className="font-semibold mb-1">Lokasi</h3>
-                  <p className="text-sm text-muted-foreground">{report.location_text}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {report.location_text}
+                  </p>
                   {report.latitude && report.longitude && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Koordinat: {report.latitude.toFixed(6)}, {report.longitude.toFixed(6)}
+                      Koordinat: {report.latitude.toFixed(6)},{" "}
+                      {report.longitude.toFixed(6)}
                     </p>
                   )}
                 </div>
@@ -217,11 +236,15 @@ export default function ReportDetail() {
                       <Card key={update.id} className="bg-muted/50">
                         <CardContent className="pt-4">
                           <div className="flex items-start justify-between mb-2">
-                            <Badge className={getStatusColor(update.status_update)}>
+                            <Badge
+                              className={getStatusColor(update.status_update)}
+                            >
                               {update.status_update}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(update.created_at).toLocaleString("id-ID")}
+                              {new Date(update.created_at).toLocaleString(
+                                "id-ID"
+                              )}
                             </span>
                           </div>
                           <p className="text-sm mb-2">{update.note}</p>

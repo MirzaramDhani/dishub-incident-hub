@@ -153,8 +153,11 @@ CREATE POLICY "Users can update their own reports"
 CREATE POLICY "Petugas can update assigned reports"
   ON public.reports FOR UPDATE
   USING (
-    public.has_role(auth.uid(), 'petugas') AND 
-    (assigned_to = auth.uid() OR assigned_to IS NULL)
+    -- allow any user with role 'petugas' to update reports that are either
+    -- unassigned (assigned_to IS NULL) or assigned to a petugas account
+    public.has_role(auth.uid(), 'petugas') AND (
+      assigned_to IS NULL OR public.has_role(assigned_to, 'petugas')
+    )
   );
 
 CREATE POLICY "Admins can update any report"
@@ -170,11 +173,23 @@ CREATE POLICY "Anyone authenticated can view report updates"
   ON public.report_updates FOR SELECT
   USING (auth.uid() IS NOT NULL);
 
-CREATE POLICY "Petugas can create updates for their reports"
+CREATE POLICY "Petugas can create updates for reports assigned to Dishub (org-level)"
   ON public.report_updates FOR INSERT
   WITH CHECK (
-    public.has_role(auth.uid(), 'petugas') AND 
-    petugas_id = auth.uid()
+    -- requester must be a petugas and the inserted "petugas_id" must be the
+    -- authenticated user so we keep an audit of who created the update
+    public.has_role(auth.uid(), 'petugas') AND
+    petugas_id = auth.uid() AND
+    -- allow inserts only for report IDs that refer to reports which are either
+    -- unassigned (organization-level) or assigned to a petugas account. This
+    -- keeps petugas as an organisation while preserving who performed the
+    -- specific action via the petugas_id column.
+    EXISTS (
+      SELECT 1 FROM public.reports r
+      WHERE r.id = report_id AND (
+        r.assigned_to IS NULL OR public.has_role(r.assigned_to, 'petugas')
+      )
+    )
   );
 
 CREATE POLICY "Admins can create any update"

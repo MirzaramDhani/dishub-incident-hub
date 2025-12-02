@@ -8,15 +8,31 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, MapPin, Calendar, User, FileText, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  MapPin,
+  Calendar,
+  User,
+  FileText,
+  Loader2,
+} from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { z } from "zod";
 
 const updateSchema = z.object({
-  note: z.string().min(10, "Catatan minimal 10 karakter").max(1000, "Catatan maksimal 1000 karakter"),
+  note: z
+    .string()
+    .min(10, "Catatan minimal 10 karakter")
+    .max(1000, "Catatan maksimal 1000 karakter"),
   status: z.enum(["On Progress", "Resolved", "Rejected"]),
 });
 
@@ -34,6 +50,7 @@ type Report = {
   assigned_to: string | null;
   categories?: { name: string };
   profiles?: { name: string };
+  assigned_profiles?: { name: string; role?: string };
 };
 
 type ReportUpdate = {
@@ -72,16 +89,39 @@ export default function PetugasReportDetail() {
     try {
       const { data, error } = await supabase
         .from("reports")
-        .select(`
+        .select(
+          `
           *,
           categories (name),
-          profiles!reports_user_id_fkey (name)
-        `)
+          profiles!reports_user_id_fkey (name),
+          assigned_profiles:profiles!reports_assigned_to_fkey (name, role)
+        `
+        )
         .eq("id", id)
         .single();
 
       if (error) throw error;
       setReport(data);
+      // ensure we have the assigned profile role populated. sometimes the FK join
+      // may not return 'role' (or the relation might not exist) — fetch a
+      // fallback so canUpdate logic can rely on the role value.
+      if (data?.assigned_to && !data?.assigned_profiles?.role) {
+        try {
+          const { data: assignedProfile, error: assignedError } = await supabase
+            .from("profiles")
+            .select("name, role")
+            .eq("id", data.assigned_to)
+            .single();
+
+          if (!assignedError && assignedProfile) {
+            setReport((prev) =>
+              prev ? { ...prev, assigned_profiles: assignedProfile } : prev
+            );
+          }
+        } catch (e) {
+          // nothing — best-effort fallback
+        }
+      }
       setUpdateData({ ...updateData, status: data.status });
     } catch (error: any) {
       toast.error("Gagal memuat detail laporan");
@@ -94,10 +134,12 @@ export default function PetugasReportDetail() {
     try {
       const { data, error } = await supabase
         .from("report_updates")
-        .select(`
+        .select(
+          `
           *,
           profiles (name)
-        `)
+        `
+        )
         .eq("report_id", id)
         .order("created_at", { ascending: false });
 
@@ -139,9 +181,9 @@ export default function PetugasReportDetail() {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from("report-images")
-        .getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("report-images").getPublicUrl(filePath);
 
       return publicUrl;
     } catch (error: any) {
@@ -237,7 +279,11 @@ export default function PetugasReportDetail() {
       <Layout>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Laporan tidak ditemukan</p>
-          <Button onClick={() => navigate("/petugas")} variant="outline" className="mt-4">
+          <Button
+            onClick={() => navigate("/petugas")}
+            variant="outline"
+            className="mt-4"
+          >
             Kembali
           </Button>
         </div>
@@ -245,7 +291,16 @@ export default function PetugasReportDetail() {
     );
   }
 
-  const canUpdate = report.assigned_to === profile?.id || report.assigned_to === null;
+  // allow admin always; allow the assigned user; allow unassigned reports; and
+  // allow any petugas (Dishub) to update reports assigned to the organization
+  const isAdmin = profile?.role === "admin";
+  const isPetugas = profile?.role === "petugas";
+  const assignedIsPetugas = report.assigned_profiles?.role === "petugas";
+  const canUpdate =
+    isAdmin ||
+    report.assigned_to === profile?.id ||
+    report.assigned_to === null ||
+    (isPetugas && assignedIsPetugas);
 
   return (
     <Layout>
@@ -293,7 +348,9 @@ export default function PetugasReportDetail() {
                 <div className="flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
                   <span className="font-medium">Dibuat:</span>
-                  <span>{new Date(report.created_at).toLocaleString("id-ID")}</span>
+                  <span>
+                    {new Date(report.created_at).toLocaleString("id-ID")}
+                  </span>
                 </div>
               </div>
 
@@ -311,10 +368,13 @@ export default function PetugasReportDetail() {
                   <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
                     <h4 className="font-semibold mb-1">Lokasi</h4>
-                    <p className="text-sm text-muted-foreground">{report.location_text}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {report.location_text}
+                    </p>
                     {report.latitude && report.longitude && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        Koordinat: {report.latitude.toFixed(6)}, {report.longitude.toFixed(6)}
+                        Koordinat: {report.latitude.toFixed(6)},{" "}
+                        {report.longitude.toFixed(6)}
                       </p>
                     )}
                   </div>
@@ -323,8 +383,8 @@ export default function PetugasReportDetail() {
             </CardContent>
           </Card>
 
-          {/* Update Form */}
-          {canUpdate && (
+          {/* Update Form or explanation when not allowed */}
+          {canUpdate ? (
             <Card>
               <CardHeader>
                 <CardTitle>Tambah Update</CardTitle>
@@ -335,13 +395,17 @@ export default function PetugasReportDetail() {
                     <Label htmlFor="status">Status *</Label>
                     <Select
                       value={updateData.status}
-                      onValueChange={(value) => setUpdateData({ ...updateData, status: value })}
+                      onValueChange={(value) =>
+                        setUpdateData({ ...updateData, status: value })
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Pilih status" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="On Progress">Dalam Proses</SelectItem>
+                        <SelectItem value="On Progress">
+                          Dalam Proses
+                        </SelectItem>
                         <SelectItem value="Resolved">Selesai</SelectItem>
                         <SelectItem value="Rejected">Ditolak</SelectItem>
                       </SelectContent>
@@ -355,13 +419,17 @@ export default function PetugasReportDetail() {
                       placeholder="Jelaskan tindakan yang telah dilakukan..."
                       rows={4}
                       value={updateData.note}
-                      onChange={(e) => setUpdateData({ ...updateData, note: e.target.value })}
+                      onChange={(e) =>
+                        setUpdateData({ ...updateData, note: e.target.value })
+                      }
                       required
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="update-image">Upload Foto Bukti (Opsional)</Label>
+                    <Label htmlFor="update-image">
+                      Upload Foto Bukti (Opsional)
+                    </Label>
                     <div className="flex items-center gap-4">
                       <Input
                         id="update-image"
@@ -395,6 +463,32 @@ export default function PetugasReportDetail() {
                     )}
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tambah Update</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Anda tidak memiliki izin untuk menambahkan update pada laporan
+                  ini.
+                  {report.assigned_to ? (
+                    <>
+                      {" "}
+                      Laporan ditugaskan kepada{" "}
+                      <strong>
+                        {report.assigned_profiles?.name ?? report.assigned_to}
+                      </strong>
+                      {report.assigned_profiles?.role ? (
+                        <> ({report.assigned_profiles.role})</>
+                      ) : null}
+                    </>
+                  ) : (
+                    <> Laporan belum ditugaskan kepada petugas tertentu.</>
+                  )}
+                </p>
               </CardContent>
             </Card>
           )}

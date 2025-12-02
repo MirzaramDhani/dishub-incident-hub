@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -6,18 +6,39 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Upload, Loader2, MapPin } from "lucide-react";
+import { ArrowLeft, Upload, Loader2, MapPin, X } from "lucide-react";
 import { z } from "zod";
 
 const reportSchema = z.object({
-  title: z.string().min(5, "Judul minimal 5 karakter").max(200, "Judul maksimal 200 karakter"),
-  description: z.string().min(10, "Deskripsi minimal 10 karakter").max(2000, "Deskripsi maksimal 2000 karakter"),
+  title: z
+    .string()
+    .min(5, "Judul minimal 5 karakter")
+    .max(200, "Judul maksimal 200 karakter"),
+  description: z
+    .string()
+    .min(10, "Deskripsi minimal 10 karakter")
+    .max(2000, "Deskripsi maksimal 2000 karakter"),
   category_id: z.string().uuid("Kategori harus dipilih"),
-  location_text: z.string().min(5, "Lokasi minimal 5 karakter").max(500, "Lokasi maksimal 500 karakter"),
+  location_text: z
+    .string()
+    .min(5, "Lokasi minimal 5 karakter")
+    .max(500, "Lokasi maksimal 500 karakter"),
 });
 
 type Category = {
@@ -41,10 +62,20 @@ export default function NewReport() {
     latitude: "",
     longitude: "",
   });
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
+  const watchId = useRef<number | null>(null);
 
   useEffect(() => {
     fetchCategories();
-    getCurrentLocation();
+    // Don't auto-run GPS on mount; let the user trigger the GPS button.
+
+    return () => {
+      if (watchId.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId.current);
+        watchId.current = null;
+      }
+    };
   }, []);
 
   const fetchCategories = async () => {
@@ -60,23 +91,85 @@ export default function NewReport() {
     }
   };
 
-  const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
+  const stopGettingLocation = () => {
+    if (watchId.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchId.current);
+      watchId.current = null;
+    }
+    setGettingLocation(false);
+  };
+
+  const getCurrentLocation = (useWatch = true) => {
+    if (!navigator.geolocation) {
+      toast.info("Geolocation tidak tersedia di browser Anda");
+      return;
+    }
+
+    setGettingLocation(true);
+    setLocationAccuracy(null);
+
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 5000,
+    };
+
+    if (useWatch && navigator.geolocation.watchPosition) {
+      const id = navigator.geolocation.watchPosition(
         (position) => {
-          setFormData(prev => ({
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          const acc = position.coords.accuracy ?? null;
+
+          setFormData((prev) => ({
             ...prev,
-            latitude: position.coords.latitude.toString(),
-            longitude: position.coords.longitude.toString(),
+            latitude: lat.toString(),
+            longitude: lon.toString(),
           }));
-          toast.success("Lokasi GPS berhasil diambil");
+          setLocationAccuracy(acc);
+
+          // stop if accurate enough
+          if (acc !== null && acc <= 50) {
+            toast.success("Lokasi GPS akurat diambil (akurasi ≤ 50m)");
+            if (watchId.current !== null) {
+              navigator.geolocation.clearWatch(watchId.current);
+              watchId.current = null;
+            }
+            setGettingLocation(false);
+          }
         },
         (error) => {
-          console.error("Error getting location:", error);
-          toast.info("Lokasi GPS tidak tersedia, masukkan lokasi manual");
-        }
+          console.error("Error getting location (watch):", error);
+          toast.error(
+            "Gagal mendapat lokasi cepat — coba lagi atau masukkan manual"
+          );
+          setGettingLocation(false);
+        },
+        options
       );
+
+      watchId.current = id as unknown as number;
+      return;
     }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setFormData((prev) => ({
+          ...prev,
+          latitude: position.coords.latitude.toString(),
+          longitude: position.coords.longitude.toString(),
+        }));
+        setLocationAccuracy(position.coords.accuracy ?? null);
+        setGettingLocation(false);
+        toast.success("Lokasi GPS berhasil diambil");
+      },
+      (error) => {
+        console.error("Error getting location:", error);
+        toast.info("Lokasi GPS tidak tersedia, masukkan lokasi manual");
+        setGettingLocation(false);
+      },
+      options
+    );
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,9 +203,9 @@ export default function NewReport() {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from("report-images")
-        .getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("report-images").getPublicUrl(filePath);
 
       return publicUrl;
     } catch (error: any) {
@@ -194,7 +287,9 @@ export default function NewReport() {
                   id="title"
                   placeholder="Contoh: Jalan berlubang di Jl. Sudirman"
                   value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, title: e.target.value })
+                  }
                   required
                 />
               </div>
@@ -203,7 +298,9 @@ export default function NewReport() {
                 <Label htmlFor="category">Kategori *</Label>
                 <Select
                   value={formData.category_id}
-                  onValueChange={(value) => setFormData({ ...formData, category_id: value })}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, category_id: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Pilih kategori" />
@@ -225,7 +322,9 @@ export default function NewReport() {
                   placeholder="Jelaskan kondisi masalah secara detail..."
                   rows={5}
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
                   required
                 />
               </div>
@@ -237,23 +336,61 @@ export default function NewReport() {
                     id="location"
                     placeholder="Contoh: Jl. Sudirman No. 123, Jakarta"
                     value={formData.location_text}
-                    onChange={(e) => setFormData({ ...formData, location_text: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        location_text: e.target.value,
+                      })
+                    }
                     required
                     className="flex-1"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={getCurrentLocation}
-                    className="gap-2"
-                  >
-                    <MapPin className="h-4 w-4" />
-                    GPS
-                  </Button>
+                  {gettingLocation ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="gap-2"
+                        disabled
+                      >
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Mencari
+                        {locationAccuracy
+                          ? ` (${locationAccuracy.toFixed(0)} m)`
+                          : "..."}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={stopGettingLocation}
+                        className="gap-2"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => getCurrentLocation(true)}
+                      className="gap-2"
+                    >
+                      <MapPin className="h-4 w-4" />
+                      GPS
+                    </Button>
+                  )}
                 </div>
                 {formData.latitude && formData.longitude && (
                   <p className="text-xs text-muted-foreground">
-                    Koordinat: {parseFloat(formData.latitude).toFixed(6)}, {parseFloat(formData.longitude).toFixed(6)}
+                    Koordinat: {parseFloat(formData.latitude).toFixed(6)},{" "}
+                    {parseFloat(formData.longitude).toFixed(6)}
+                    {locationAccuracy ? (
+                      <span className="ml-2 text-xs opacity-80">
+                        (akurasi ~{locationAccuracy.toFixed(0)} m)
+                      </span>
+                    ) : null}
                   </p>
                 )}
               </div>
@@ -289,7 +426,9 @@ export default function NewReport() {
                 {loading || uploadingImage ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    {uploadingImage ? "Mengupload gambar..." : "Mengirim laporan..."}
+                    {uploadingImage
+                      ? "Mengupload gambar..."
+                      : "Mengirim laporan..."}
                   </>
                 ) : (
                   <>

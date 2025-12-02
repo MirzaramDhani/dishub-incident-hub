@@ -27,7 +27,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/auth" element={<Auth />} />
-            
+
             {/* User Routes */}
             <Route
               path="/dashboard"
@@ -48,12 +48,13 @@ const App = () => (
             <Route
               path="/dashboard/report/:id"
               element={
-                <ProtectedRoute allowedRoles={["user"]}>
+                // allow admins to view user report details as well
+                <ProtectedRoute allowedRoles={["user", "admin"]}>
                   <ReportDetail />
                 </ProtectedRoute>
               }
             />
-            
+
             {/* Petugas Routes */}
             <Route
               path="/petugas"
@@ -71,7 +72,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-            
+
             {/* Admin Routes */}
             <Route
               path="/admin"
@@ -81,7 +82,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-            
+
             <Route path="/unauthorized" element={<Unauthorized />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
