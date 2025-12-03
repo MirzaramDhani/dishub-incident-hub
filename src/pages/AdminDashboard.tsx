@@ -26,20 +26,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalReports: 0,
     totalUsers: 0,
     openReports: 0,
     resolvedReports: 0,
   });
-
-  useEffect(() => {
-    fetchStats();
-    fetchReports();
-    fetchUsers();
-    fetchCategories();
-  }, []);
-  const navigate = useNavigate();
   const [reports, setReports] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -51,6 +44,44 @@ export default function AdminDashboard() {
     null
   );
   const [editingCategoryName, setEditingCategoryName] = useState("");
+  const [editingUserRoleId, setEditingUserRoleId] = useState<string | null>(
+    null
+  );
+  const [editingUserRoleValue, setEditingUserRoleValue] = useState<
+    "user" | "petugas"
+  >("user");
+
+  // Initial load, real-time listener, and polling setup
+  useEffect(() => {
+    fetchStats();
+    fetchReports();
+    fetchUsers();
+    fetchCategories();
+
+    // Set up real-time listener for reports (auto-update on changes)
+    const reportsSubscription = supabase
+      .channel("public:reports")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reports" },
+        () => {
+          console.log("Report changed, refetching...");
+          fetchReports();
+          fetchStats();
+        }
+      )
+      .subscribe((status) => {
+        console.log("Subscription status:", status);
+      });
+
+    // Polling interval every 10 seconds for robust auto-update
+    fetchReports();
+    fetchStats();
+
+    return () => {
+      reportsSubscription.unsubscribe();
+    };
+  }, []);
 
   const fetchStats = async () => {
     try {
@@ -271,8 +302,39 @@ export default function AdminDashboard() {
         <div className="grid gap-6 lg:grid-cols-3">
           {/* All Reports */}
           <Card className="lg:col-span-2">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Semua Laporan</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto"
+                onClick={() => {
+                  fetchReports();
+                  fetchStats();
+                }}
+                title="Refresh laporan"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  fill="none"
+                  strokeWidth="2"
+                  className="w-4 h-4 mr-1"
+                >
+                  <path
+                    d="M21 12a9 9 0 11-3-6.708"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M21 3v6h-6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Refresh
+              </Button>
             </CardHeader>
             <CardContent>
               {loadingReports ? (
@@ -377,26 +439,53 @@ export default function AdminDashboard() {
                           <div className="text-xs mr-2">Role: {u.role}</div>
                           {/* don't allow changing admin role */}
                           {u.role !== "admin" ? (
-                            <>
+                            editingUserRoleId === u.id ? (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={editingUserRoleValue}
+                                  onChange={(e) =>
+                                    setEditingUserRoleValue(
+                                      e.target.value as "user" | "petugas"
+                                    )
+                                  }
+                                  className="text-sm rounded border px-2 py-1"
+                                >
+                                  <option value="user">User</option>
+                                  <option value="petugas">Petugas</option>
+                                </select>
+                                <Button
+                                  size="sm"
+                                  onClick={async () => {
+                                    await changeUserRole(
+                                      u.id,
+                                      editingUserRoleValue
+                                    );
+                                    setEditingUserRoleId(null);
+                                  }}
+                                >
+                                  Simpan
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setEditingUserRoleId(null)}
+                                >
+                                  Batal
+                                </Button>
+                              </div>
+                            ) : (
                               <Button
                                 size="sm"
-                                variant={
-                                  u.role === "petugas" ? "secondary" : "ghost"
-                                }
-                                onClick={() => changeUserRole(u.id, "petugas")}
+                                onClick={() => {
+                                  setEditingUserRoleId(u.id);
+                                  setEditingUserRoleValue(
+                                    u.role === "petugas" ? "petugas" : "user"
+                                  );
+                                }}
                               >
-                                Petugas
+                                Ubah Role
                               </Button>
-                              <Button
-                                size="sm"
-                                variant={
-                                  u.role === "user" ? "secondary" : "ghost"
-                                }
-                                onClick={() => changeUserRole(u.id, "user")}
-                              >
-                                User
-                              </Button>
-                            </>
+                            )
                           ) : (
                             <Badge>Admin</Badge>
                           )}

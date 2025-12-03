@@ -64,7 +64,11 @@ export default function PetugasDashboard() {
       if (availableError) throw availableError;
       setAvailableReports(available || []);
 
-      // Fetch assigned reports (for Dishub) — show all reports that have been assigned
+      // Fetch reports being handled by petugas team (Dishub org-level)
+      // This includes:
+      // 1. Reports assigned to any petugas account (.assigned_to role = petugas)
+      // 2. Reports with status changed to "On Progress" or "Resolved" (meaning a petugas worked on it)
+      // 3. Reports with updates created by petugas (even if assigned_to is null/non-petugas)
       const { data: mine, error: mineError } = await supabase
         .from("reports")
         .select(
@@ -75,13 +79,14 @@ export default function PetugasDashboard() {
           assigned_profiles:profiles!reports_assigned_to_fkey (name, role)
         `
         )
-        .not("assigned_to", "is", null)
+        .or(`status.eq.On Progress,status.eq.Resolved,assigned_to.not.is.null`)
         .order("created_at", { ascending: false });
 
       if (mineError) throw mineError;
       setMyReports(mine || []);
 
-      // Calculate stats
+      // Calculate stats (only count "On Progress" and "Resolved" since "Ditangani"
+      // now shows all reports with those statuses OR assigned reports)
       const total = mine?.length || 0;
       const inProgress =
         mine?.filter((r) => r.status === "On Progress").length || 0;

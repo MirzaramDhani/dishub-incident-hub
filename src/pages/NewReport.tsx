@@ -24,6 +24,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ArrowLeft, Upload, Loader2, MapPin, X } from "lucide-react";
 import { z } from "zod";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 const reportSchema = z.object({
   title: z
@@ -54,6 +56,10 @@ export default function NewReport() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
+  const [showMap, setShowMap] = useState(false);
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const map = useRef<L.Map | null>(null);
+  const marker = useRef<L.Marker | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -75,8 +81,76 @@ export default function NewReport() {
         navigator.geolocation.clearWatch(watchId.current);
         watchId.current = null;
       }
+      // Cleanup map
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
     };
   }, []);
+
+  // Initialize map when showMap changes
+  useEffect(() => {
+    if (!showMap || !mapContainer.current) return;
+
+    // Initialize map centered on a default location (Jakarta)
+    const defaultLat = parseFloat(formData.latitude) || -6.2088;
+    const defaultLon = parseFloat(formData.longitude) || 106.8456;
+
+    if (map.current) {
+      map.current.remove();
+    }
+
+    map.current = L.map(mapContainer.current).setView(
+      [defaultLat, defaultLon],
+      13
+    );
+
+    // Add OpenStreetMap tiles
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19,
+    }).addTo(map.current);
+
+    // Add marker if coordinates exist
+    if (formData.latitude && formData.longitude) {
+      if (marker.current) marker.current.remove();
+      marker.current = L.marker([defaultLat, defaultLon]).addTo(map.current);
+    }
+
+    // Handle map click to set location
+    const onMapClick = (e: L.LeafletMouseEvent) => {
+      const lat = e.latlng.lat;
+      const lon = e.latlng.lng;
+
+      setFormData((prev) => ({
+        ...prev,
+        latitude: lat.toString(),
+        longitude: lon.toString(),
+      }));
+
+      if (marker.current) marker.current.remove();
+      marker.current = L.marker([lat, lon])
+        .addTo(map.current!)
+        .bindPopup(
+          `<div class="text-sm">
+            <p class="font-semibold">Lokasi Dipilih</p>
+            <p>${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
+          </div>`
+        )
+        .openPopup();
+
+      toast.success(`Lokasi dipilih: ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
+    };
+
+    map.current.on("click", onMapClick);
+
+    return () => {
+      if (map.current) {
+        map.current.off("click", onMapClick);
+      }
+    };
+  }, [showMap]);
 
   const fetchCategories = async () => {
     const { data, error } = await supabase
@@ -392,6 +466,44 @@ export default function NewReport() {
                       </span>
                     ) : null}
                   </p>
+                )}
+              </div>
+
+              {/* Map Preview */}
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() => setShowMap(!showMap)}
+                >
+                  <MapPin className="h-4 w-4" />
+                  {showMap ? "Tutup Peta" : "Buka Peta & Pilih Lokasi"}
+                </Button>
+
+                {showMap && (
+                  <Card className="border-2 border-primary/20">
+                    <CardContent className="p-4">
+                      <div className="text-sm text-muted-foreground mb-2">
+                        Klik di peta untuk memilih lokasi
+                      </div>
+                      <div
+                        ref={mapContainer}
+                        className="w-full h-96 rounded-lg border border-input"
+                      />
+                      {formData.latitude && formData.longitude && (
+                        <div className="mt-3 p-3 bg-muted rounded-lg text-sm">
+                          <p className="font-semibold mb-1">
+                            Lokasi yang Dipilih:
+                          </p>
+                          <p>
+                            Lat: {parseFloat(formData.latitude).toFixed(6)},
+                            Lon: {parseFloat(formData.longitude).toFixed(6)}
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
               </div>
 

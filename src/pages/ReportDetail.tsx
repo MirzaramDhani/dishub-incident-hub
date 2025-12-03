@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ArrowLeft, MapPin, Calendar, User, FileText } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import MapPreview from "@/components/MapPreview";
 
 type Report = {
   id: string;
@@ -211,7 +212,7 @@ export default function ReportDetail() {
             <div>
               <div className="flex items-start gap-2">
                 <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                <div>
+                <div className="w-full">
                   <h3 className="font-semibold mb-1">Lokasi</h3>
                   <p className="text-sm text-muted-foreground">
                     {report.location_text}
@@ -225,6 +226,19 @@ export default function ReportDetail() {
                 </div>
               </div>
             </div>
+
+            {/* Map Preview */}
+            {(report.latitude || report.longitude) && (
+              <div>
+                <h3 className="font-semibold mb-2">Peta Lokasi</h3>
+                <MapPreview
+                  latitude={report.latitude}
+                  longitude={report.longitude}
+                  title={report.title}
+                  height="h-80"
+                />
+              </div>
+            )}
 
             {updates.length > 0 && (
               <>

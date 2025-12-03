@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import MapPreview from "@/components/MapPreview";
 import {
   Select,
   SelectContent,
@@ -366,7 +367,7 @@ export default function PetugasReportDetail() {
               <div>
                 <div className="flex items-start gap-2">
                   <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                  <div>
+                  <div className="w-full">
                     <h4 className="font-semibold mb-1">Lokasi</h4>
                     <p className="text-sm text-muted-foreground">
                       {report.location_text}
@@ -380,6 +381,19 @@ export default function PetugasReportDetail() {
                   </div>
                 </div>
               </div>
+
+              {/* Map Preview */}
+              {(report.latitude || report.longitude) && (
+                <div>
+                  <h4 className="font-semibold mb-2">Peta Lokasi</h4>
+                  <MapPreview
+                    latitude={report.latitude}
+                    longitude={report.longitude}
+                    title={report.title}
+                    height="h-72"
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
 
