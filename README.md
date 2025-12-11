@@ -1,5 +1,5 @@
-#Dishub Incident Hub
-\n
+Dishub Incident Hub.
+
 This project is built with:
 
 - Vite
